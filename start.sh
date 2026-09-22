@@ -11,13 +11,14 @@ if [ ! -f "$BINARY" ]; then
     bash build.sh
 fi
 
+# --hostname part.salikh.info --backend http://192.168.1.11:8080/ --port 443  --http-port 80
 # Parse arguments
-HOSTNAME=""
-BACKEND=""
+HOSTNAME="part.salikh.info"
+BACKEND="http://192.168.1.11:8080"
 PORT="443"
 HTTP_PORT="80"
 CACHE_DIR=""
-VERBOSE=""
+VERBOSE="1"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
