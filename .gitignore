@@ -1,0 +1,5 @@
+https-proxy
+*.swp
+*.swo
+*~
+.DS_Store
