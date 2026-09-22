@@ -2,6 +2,7 @@ package main
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -259,3 +260,190 @@ func TestProxyPreservesHTTPMethods(t *testing.T) {
 		})
 	}
 }
+
+// TestHTTPRedirectToHTTPS verifies that HTTP requests are redirected to HTTPS.
+func TestHTTPRedirectToHTTPS(t *testing.T) {
+	backendURL, _ := url.Parse("http://localhost:8080")
+	proxy := NewHTTPSProxy(backendURL, nil, false)
+
+	req := httptest.NewRequest("GET", "/test/path?foo=bar&baz=qux", nil)
+	req.Host = "example.com"
+
+	w := httptest.NewRecorder()
+	proxy.handleHTTP(w, req)
+
+	if w.Code != http.StatusMovedPermanently {
+		t.Fatalf("Expected status %d, got %d", http.StatusMovedPermanently, w.Code)
+	}
+
+	expectedLocation := "https://example.com/test/path?foo=bar&baz=qux"
+	if loc := w.Header().Get("Location"); loc != expectedLocation {
+		t.Errorf("Expected Location header %q, got %q", expectedLocation, loc)
+	}
+}
+
+// TestHTTPRedirectWithCustomPort verifies that redirects include the custom HTTPS port.
+func TestHTTPRedirectWithCustomPort(t *testing.T) {
+	backendURL, _ := url.Parse("http://localhost:8080")
+	proxy := NewHTTPSProxy(backendURL, nil, false)
+	proxy.SetHTTPSPort(8443)
+
+	req := httptest.NewRequest("GET", "/hello", nil)
+	req.Host = "example.com:8080"
+
+	w := httptest.NewRecorder()
+	proxy.handleHTTP(w, req)
+
+	if w.Code != http.StatusMovedPermanently {
+		t.Fatalf("Expected status %d, got %d", http.StatusMovedPermanently, w.Code)
+	}
+
+	expectedLocation := "https://example.com:8443/hello"
+	if loc := w.Header().Get("Location"); loc != expectedLocation {
+		t.Errorf("Expected Location header %q, got %q", expectedLocation, loc)
+	}
+}
+
+// TestHTTPRedirectIPv6Host verifies that IPv6 hosts are handled properly.
+func TestHTTPRedirectIPv6Host(t *testing.T) {
+	backendURL, _ := url.Parse("http://localhost:8080")
+	proxy := NewHTTPSProxy(backendURL, nil, false)
+
+	// Port 443
+	req := httptest.NewRequest("GET", "/path", nil)
+	req.Host = "[::1]:80"
+	w := httptest.NewRecorder()
+	proxy.handleHTTP(w, req)
+
+	if loc := w.Header().Get("Location"); loc != "https://[::1]/path" {
+		t.Errorf("Expected https://[::1]/path, got %q", loc)
+	}
+
+	// Custom port
+	proxy.SetHTTPSPort(8443)
+	req2 := httptest.NewRequest("GET", "/path", nil)
+	req2.Host = "[::1]:8080"
+	w2 := httptest.NewRecorder()
+	proxy.handleHTTP(w2, req2)
+
+	if loc := w2.Header().Get("Location"); loc != "https://[::1]:8443/path" {
+		t.Errorf("Expected https://[::1]:8443/path, got %q", loc)
+	}
+}
+
+// TestHTTPRedirectDefaultHostnameFallback verifies fallback to defaultHostname when Host is empty.
+func TestHTTPRedirectDefaultHostnameFallback(t *testing.T) {
+	backendURL, _ := url.Parse("http://localhost:8080")
+	proxy := NewHTTPSProxy(backendURL, nil, false)
+	proxy.SetDefaultHostname("fallback.example.com")
+
+	req := httptest.NewRequest("GET", "/about", nil)
+	req.Host = ""
+
+	w := httptest.NewRecorder()
+	proxy.handleHTTP(w, req)
+
+	if w.Code != http.StatusMovedPermanently {
+		t.Fatalf("Expected status %d, got %d", http.StatusMovedPermanently, w.Code)
+	}
+
+	if loc := w.Header().Get("Location"); loc != "https://fallback.example.com/about" {
+		t.Errorf("Expected https://fallback.example.com/about, got %q", loc)
+	}
+}
+
+// TestACMEChallengeNotRedirected verifies that ACME challenge requests are never redirected to HTTPS.
+func TestACMEChallengeNotRedirected(t *testing.T) {
+	backendURL, _ := url.Parse("http://localhost:8080")
+	proxy := NewHTTPSProxy(backendURL, nil, false)
+
+	acmePaths := []string{
+		"/.well-known/acme-challenge/token123",
+		"/.well-known/acme-challenge/token-xyz-456",
+		"/.well-known/acme-challenge",
+	}
+
+	for _, p := range acmePaths {
+		t.Run(p, func(t *testing.T) {
+			req := httptest.NewRequest("GET", p, nil)
+			req.Host = "example.com"
+
+			w := httptest.NewRecorder()
+			proxy.handleHTTP(w, req)
+
+			if w.Code == http.StatusMovedPermanently || w.Code == http.StatusFound || w.Code == http.StatusPermanentRedirect {
+				t.Fatalf("ACME challenge %s was redirected (status %d)", p, w.Code)
+			}
+			if w.Code != http.StatusNotFound {
+				t.Errorf("Expected 404 Not Found for unhandled ACME challenge, got %d", w.Code)
+			}
+			if loc := w.Header().Get("Location"); loc != "" {
+				t.Errorf("ACME challenge response contained Location header: %q", loc)
+			}
+		})
+	}
+}
+
+// TestServeHTTPWithAutocertManager verifies that serveHTTP integrates with autocert.Manager.
+func TestServeHTTPWithAutocertManager(t *testing.T) {
+	backendURL, _ := url.Parse("http://localhost:8080")
+	tmpDir := t.TempDir()
+	certManager := &autocert.Manager{
+		Prompt:     autocert.AcceptTOS,
+		HostPolicy: autocert.HostWhitelist("example.com"),
+		Cache:      autocert.DirCache(tmpDir),
+	}
+	proxy := NewHTTPSProxy(backendURL, certManager, false)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to listen: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		_ = proxy.serveHTTP(listener)
+	}()
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	// 1. Regular HTTP request should be redirected to HTTPS
+	resp, err := client.Get("http://" + listener.Addr().String() + "/some/path?query=1")
+	if err != nil {
+		t.Fatalf("Failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMovedPermanently {
+		t.Errorf("Expected 301, got %d", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	if !strings.HasPrefix(loc, "https://") || !strings.Contains(loc, "/some/path?query=1") {
+		t.Errorf("Unexpected Location: %s", loc)
+	}
+
+	// 2. ACME challenge request to an unknown token should NOT be redirected
+	req2, err := http.NewRequest("GET", "http://"+listener.Addr().String()+"/.well-known/acme-challenge/dummy-token", nil)
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	req2.Host = "example.com"
+	resp2, err := client.Do(req2)
+	if err != nil {
+		t.Fatalf("Failed to send ACME request: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode == http.StatusMovedPermanently || resp2.StatusCode == http.StatusFound || resp2.StatusCode == http.StatusPermanentRedirect {
+		t.Errorf("ACME challenge was redirected with status %d to %s", resp2.StatusCode, resp2.Header.Get("Location"))
+	}
+	if resp2.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected 404 for unknown ACME challenge, got %d", resp2.StatusCode)
+	}
+}
+
+

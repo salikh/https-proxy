@@ -127,7 +127,7 @@ else
     echo "  Hostname: $HOSTNAME"
     echo "  Backend: $BACKEND"
     echo "  HTTPS Port: $PORT"
-    echo "  HTTP Port (ACME): $HTTP_PORT"
+    echo "  HTTP Port (ACME/Redirect): $HTTP_PORT"
 
     if [ -n "$SELF_SIGNED" ]; then
         echo "  Mode: Self-signed"

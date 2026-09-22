@@ -20,7 +20,7 @@ var (
 	hostname       = flag.String("hostname", "", "Hostname for the server (required for HTTPS)")
 	backend        = flag.String("backend", "", "Backend HTTP address to proxy to (required)")
 	port           = flag.Int("port", 443, "Port to listen on")
-	httpPort       = flag.Int("http-port", 80, "Port to listen on for HTTP (ACME challenges or plain HTTP mode)")
+	httpPort       = flag.Int("http-port", 80, "Port to listen on for HTTP (ACME challenges and HTTPS redirects, or plain HTTP mode)")
 	cacheDir       = flag.String("cache-dir", "", "Directory to cache Let's Encrypt certificates (default: $HOME/.cache/https-proxy)")
 	verbose        = flag.Bool("verbose", false, "Enable verbose request logging")
 	noTLS          = flag.Bool("no-tls", false, "Run as HTTP proxy instead of HTTPS")
@@ -61,7 +61,7 @@ func main() {
 	}
 
 	log.Printf("HTTPS listening on :%d (hostname: %s)", *port, *hostname)
-	log.Printf("HTTP listening on :%d (for ACME challenges or fallback)", *httpPort)
+	log.Printf("HTTP listening on :%d (for ACME challenges and HTTPS redirects)", *httpPort)
 
 	runHTTPSProxy(backendURL)
 
@@ -133,8 +133,10 @@ func runHTTPSProxy(backendURL *url.URL) {
 
 	// Create proxy
 	proxy := NewHTTPSProxy(backendURL, certManager, *verbose)
+	proxy.SetHTTPSPort(*port)
+	proxy.SetDefaultHostname(*hostname)
 
-	// Start HTTP server for ACME challenges or as fallback
+	// Start HTTP server for ACME challenges and HTTPS redirects
 	go func() {
 		addr := fmt.Sprintf(":%d", *httpPort)
 		listener, err := net.Listen("tcp", addr)

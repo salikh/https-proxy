@@ -27,6 +27,8 @@ type HTTPSProxy struct {
 	httpsServer       *http.Server
 	headerTransformer HeaderTransformer
 	verbose           bool
+	httpsPort         int
+	defaultHostname   string
 }
 
 // NewHTTPSProxy creates a new HTTPS proxy instance.
@@ -35,6 +37,7 @@ func NewHTTPSProxy(backend *url.URL, certManager interface{}, verbose bool) *HTT
 		backend:     backend,
 		certManager: certManager,
 		verbose:     verbose,
+		httpsPort:   443,
 	}
 
 	// Set up the reverse proxy with custom director to transform headers
@@ -116,7 +119,68 @@ func defaultHeaderTransformer(r *http.Request, target *url.URL) error {
 	return nil
 }
 
-// ServeHTTP handles HTTP requests (ACME challenges and fallback).
+// SetHTTPSPort sets the HTTPS port to redirect to when not using default port 443.
+func (p *HTTPSProxy) SetHTTPSPort(port int) {
+	p.httpsPort = port
+}
+
+// SetDefaultHostname sets the default hostname to redirect to if the request does not provide a Host header.
+func (p *HTTPSProxy) SetDefaultHostname(hostname string) {
+	p.defaultHostname = hostname
+}
+
+// isACMEChallenge checks if the HTTP request is an ACME HTTP-01 challenge verification request.
+func isACMEChallenge(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") || r.URL.Path == "/.well-known/acme-challenge"
+}
+
+// redirectTarget builds the target HTTPS URL for an incoming HTTP request.
+func (p *HTTPSProxy) redirectTarget(r *http.Request) (string, error) {
+	host := r.Host
+	if host == "" {
+		host = p.defaultHostname
+	}
+	if host == "" {
+		return "", fmt.Errorf("missing Host header")
+	}
+
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostname = h
+	}
+
+	cleanHost := strings.Trim(hostname, "[]")
+
+	httpsPort := p.httpsPort
+	if httpsPort <= 0 {
+		httpsPort = 443
+	}
+
+	var targetHost string
+	if httpsPort == 443 {
+		if strings.Contains(cleanHost, ":") {
+			targetHost = "[" + cleanHost + "]"
+		} else {
+			targetHost = cleanHost
+		}
+	} else {
+		targetHost = net.JoinHostPort(cleanHost, fmt.Sprintf("%d", httpsPort))
+	}
+
+	uri := r.URL.RequestURI()
+	if !strings.HasPrefix(uri, "/") {
+		uri = "/" + uri
+	}
+
+	return "https://" + targetHost + uri, nil
+}
+
+// ServeHTTP handles HTTP requests (ACME challenges and HTTPS redirection).
+func (p *HTTPSProxy) ServeHTTP(listener net.Listener) error {
+	return p.serveHTTP(listener)
+}
+
+// serveHTTP handles HTTP requests (ACME challenges and HTTPS redirection).
 func (p *HTTPSProxy) serveHTTP(listener net.Listener) error {
 	var handler http.Handler
 
@@ -124,7 +188,7 @@ func (p *HTTPSProxy) serveHTTP(listener net.Listener) error {
 	if acmeMgr, ok := p.certManager.(*autocert.Manager); ok {
 		handler = acmeMgr.HTTPHandler(http.HandlerFunc(p.handleHTTP))
 	} else {
-		// No ACME manager, just use fallback handler
+		// No ACME manager, use fallback handler directly
 		handler = http.HandlerFunc(p.handleHTTP)
 	}
 
@@ -134,13 +198,35 @@ func (p *HTTPSProxy) serveHTTP(listener net.Listener) error {
 	return p.httpServer.Serve(listener)
 }
 
-// handleHTTP handles HTTP requests (non-ACME).
+// handleHTTP handles HTTP requests, redirecting them to HTTPS except for ACME challenge requests.
 func (p *HTTPSProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if p.verbose {
-		log.Printf("[http] %s %s", r.Method, r.RequestURI)
+		log.Printf("[http] %s %s from %s", r.Method, r.RequestURI, r.RemoteAddr)
 	}
-	// For development, we could redirect to HTTPS, but for now just return a simple message
-	http.Error(w, "Use HTTPS", http.StatusMovedPermanently)
+
+	// Do not redirect ACME challenge requests
+	if isACMEChallenge(r) {
+		if p.verbose {
+			log.Printf("[http] ACME challenge request not handled by cert manager: %s", r.URL.Path)
+		}
+		http.NotFound(w, r)
+		return
+	}
+
+	targetURL, err := p.redirectTarget(r)
+	if err != nil {
+		if p.verbose {
+			log.Printf("[http] Redirect error: %v", err)
+		}
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+
+	if p.verbose {
+		log.Printf("[http] Redirecting %s to %s", r.RequestURI, targetURL)
+	}
+
+	http.Redirect(w, r, targetURL, http.StatusMovedPermanently)
 }
 
 // ServeTLS starts the HTTPS server with Let's Encrypt certificates.
