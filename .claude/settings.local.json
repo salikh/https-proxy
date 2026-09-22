@@ -5,7 +5,8 @@
       "Bash(go build *)",
       "Bash(go test *)",
       "Bash(jj status *)",
-      "Bash(jj commit *)"
+      "Bash(jj commit *)",
+      "Bash(chmod +x build.sh start.sh)"
     ]
   }
 }
