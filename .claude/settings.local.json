@@ -7,7 +7,8 @@
       "Bash(jj status *)",
       "Bash(jj commit *)",
       "Bash(chmod +x build.sh start.sh)",
-      "Bash(chmod +x generate-self-signed-cert.sh)"
+      "Bash(chmod +x generate-self-signed-cert.sh)",
+      "Bash(./start.sh --help)"
     ]
   }
 }
