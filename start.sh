@@ -24,6 +24,12 @@ KEY_FILE=""
 NO_TLS=""
 SELF_SIGNED=""
 VERBOSE="1"
+OAUTH=""
+OAUTH_SECRET=""
+OAUTH_PASSPHRASE=""
+OAUTH_ALLOWED_USERS=""
+OAUTH_ALLOWED_FILE=""
+OAUTH_ALLOWED_DOMAINS=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -71,9 +77,33 @@ while [[ $# -gt 0 ]]; do
             VERBOSE="-verbose"
             shift
             ;;
+        --oauth)
+            OAUTH="-oauth"
+            shift
+            ;;
+        --oauth-secret)
+            OAUTH_SECRET="$2"
+            shift 2
+            ;;
+        --oauth-passphrase)
+            OAUTH_PASSPHRASE="$2"
+            shift 2
+            ;;
+        --oauth-allowed-users)
+            OAUTH_ALLOWED_USERS="$2"
+            shift 2
+            ;;
+        --oauth-allowed-file)
+            OAUTH_ALLOWED_FILE="$2"
+            shift 2
+            ;;
+        --oauth-allowed-domains)
+            OAUTH_ALLOWED_DOMAINS="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Use: $0 [--hostname HOSTNAME] [--backend URL] [--port PORT] [--http-port PORT] [--cache-dir DIR] [--self-signed] [--self-signed-dir DIR] [--cert FILE] [--key FILE] [--no-tls] [--verbose]"
+            echo "Use: $0 [--hostname HOSTNAME] [--backend URL] [--port PORT] [--http-port PORT] [--cache-dir DIR] [--self-signed] [--self-signed-dir DIR] [--cert FILE] [--key FILE] [--no-tls] [--verbose] [--oauth] [--oauth-secret FILE] [--oauth-passphrase PASS] [--oauth-allowed-users EMAILS] [--oauth-allowed-file FILE] [--oauth-allowed-domains DOMAINS]"
             exit 1
             ;;
     esac
@@ -117,6 +147,25 @@ if [ -n "$VERBOSE" ]; then
     CMD="$CMD $VERBOSE"
 fi
 
+if [ -n "$OAUTH" ]; then
+    CMD="$CMD $OAUTH"
+    if [ -n "$OAUTH_SECRET" ]; then
+        CMD="$CMD -oauth-secret=$OAUTH_SECRET"
+    fi
+    if [ -n "$OAUTH_PASSPHRASE" ]; then
+        CMD="$CMD -oauth-passphrase=$OAUTH_PASSPHRASE"
+    fi
+    if [ -n "$OAUTH_ALLOWED_USERS" ]; then
+        CMD="$CMD -oauth-allowed-users=$OAUTH_ALLOWED_USERS"
+    fi
+    if [ -n "$OAUTH_ALLOWED_FILE" ]; then
+        CMD="$CMD -oauth-allowed-file=$OAUTH_ALLOWED_FILE"
+    fi
+    if [ -n "$OAUTH_ALLOWED_DOMAINS" ]; then
+        CMD="$CMD -oauth-allowed-domains=$OAUTH_ALLOWED_DOMAINS"
+    fi
+fi
+
 # Display configuration
 if [ -n "$NO_TLS" ]; then
     echo "Starting HTTP proxy..."
@@ -142,6 +191,22 @@ else
         if [ -n "$CACHE_DIR" ]; then
             echo "  Cache Dir: $CACHE_DIR"
         fi
+    fi
+fi
+
+if [ -n "$OAUTH" ]; then
+    echo "  OAuth: enabled"
+    if [ -n "$OAUTH_SECRET" ]; then
+        echo "  OAuth Secret: $OAUTH_SECRET"
+    fi
+    if [ -n "$OAUTH_ALLOWED_USERS" ]; then
+        echo "  OAuth Users: $OAUTH_ALLOWED_USERS"
+    fi
+    if [ -n "$OAUTH_ALLOWED_FILE" ]; then
+        echo "  OAuth Allowed File: $OAUTH_ALLOWED_FILE"
+    fi
+    if [ -n "$OAUTH_ALLOWED_DOMAINS" ]; then
+        echo "  OAuth Domains: $OAUTH_ALLOWED_DOMAINS"
     fi
 fi
 

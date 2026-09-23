@@ -1,8 +1,12 @@
 #!/bin/bash
 set -e
 
-echo "Building HTTPS proxy..."
-go build -o https-proxy
+function @verbose() { echo "$@" >&2; "$@"; }
+
+echo "Building HTTPS proxy..." >&2
+@verbose go build -o https-proxy
+echo "Setting low port capability on binary..." >&2
+@verbose sudo setcap 'cap_net_bind_service=+ep' ./https-proxy
 
 echo "✓ Build successful: ./https-proxy"
 echo ""

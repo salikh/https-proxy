@@ -29,6 +29,7 @@ type HTTPSProxy struct {
 	verbose           bool
 	httpsPort         int
 	defaultHostname   string
+	oauthManager      *OAuthManager
 }
 
 // NewHTTPSProxy creates a new HTTPS proxy instance.
@@ -129,6 +130,11 @@ func (p *HTTPSProxy) SetDefaultHostname(hostname string) {
 	p.defaultHostname = hostname
 }
 
+// SetOAuthManager configures OAuth authentication for the HTTPS proxy.
+func (p *HTTPSProxy) SetOAuthManager(mgr *OAuthManager) {
+	p.oauthManager = mgr
+}
+
 // isACMEChallenge checks if the HTTP request is an ACME HTTP-01 challenge verification request.
 func isACMEChallenge(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") || r.URL.Path == "/.well-known/acme-challenge"
@@ -203,7 +209,7 @@ func (p *HTTPSProxy) serveHTTP(listener net.Listener) error {
 // handleHTTP handles HTTP requests, redirecting them to HTTPS except for ACME challenge requests.
 func (p *HTTPSProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if p.verbose {
-		log.Printf("[http] %s %s from %s", r.Method, r.RequestURI, r.RemoteAddr)
+		log.Printf("[http] %s %s from %s", r.Method, sanitizeURI(r.RequestURI), r.RemoteAddr)
 	}
 
 	// Do not redirect ACME challenge requests
@@ -225,7 +231,7 @@ func (p *HTTPSProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if p.verbose {
-		log.Printf("[http] Redirecting %s to %s", r.RequestURI, targetURL)
+		log.Printf("[http] Redirecting %s to %s", sanitizeURI(r.RequestURI), sanitizeURI(targetURL))
 	}
 
 	http.Redirect(w, r, targetURL, http.StatusMovedPermanently)
@@ -268,8 +274,40 @@ func (p *HTTPSProxy) ServeTLSWithFiles(listener net.Listener, certFile, keyFile 
 // serveProxy handles HTTPS requests by forwarding them to the backend.
 func (p *HTTPSProxy) serveProxy(w http.ResponseWriter, r *http.Request) {
 	if p.verbose {
-		log.Printf("[https] %s %s from %s", r.Method, r.RequestURI, r.RemoteAddr)
+		log.Printf("[https] %s %s from %s", r.Method, sanitizeURI(r.RequestURI), r.RemoteAddr)
 	}
+
+	// ACME challenge exemption: NEVER require OAuth for ACME challenges
+	if isACMEChallenge(r) {
+		p.reverseProxy.ServeHTTP(w, r)
+		return
+	}
+
+	// OAuth authentication enforcement
+	if p.oauthManager != nil {
+		if p.oauthManager.IsCallback(r) {
+			p.oauthManager.HandleCallback(w, r)
+			return
+		}
+		if p.oauthManager.IsLogout(r) {
+			p.oauthManager.HandleLogout(w, r)
+			return
+		}
+
+		user, err := p.oauthManager.AuthenticateRequest(r)
+		if err != nil {
+			if p.verbose {
+				log.Printf("[oauth] Unauthenticated request for %s, redirecting to login", sanitizeURI(r.RequestURI))
+			}
+			p.oauthManager.HandleLoginRedirect(w, r)
+			return
+		}
+
+		// Inject authenticated identity headers for backend
+		r.Header.Set("X-Forwarded-User", user)
+		r.Header.Set("X-Auth-Email", user)
+	}
+
 	p.reverseProxy.ServeHTTP(w, r)
 }
 
@@ -305,6 +343,7 @@ type HTTPProxy struct {
 	httpServer        *http.Server
 	headerTransformer HeaderTransformer
 	verbose           bool
+	oauthManager      *OAuthManager
 }
 
 // NewHTTPProxy creates a new HTTP proxy instance.
@@ -358,6 +397,11 @@ func (p *HTTPProxy) director(r *http.Request) {
 	r.Host = p.backend.Host
 }
 
+// SetOAuthManager configures OAuth authentication for the HTTP proxy.
+func (p *HTTPProxy) SetOAuthManager(mgr *OAuthManager) {
+	p.oauthManager = mgr
+}
+
 // ServeHTTP starts the HTTP server.
 func (p *HTTPProxy) ServeHTTP(listener net.Listener) error {
 	p.httpServer = &http.Server{
@@ -371,8 +415,40 @@ func (p *HTTPProxy) ServeHTTP(listener net.Listener) error {
 // serveProxy handles HTTP requests by forwarding them to the backend.
 func (p *HTTPProxy) serveProxy(w http.ResponseWriter, r *http.Request) {
 	if p.verbose {
-		log.Printf("[http] %s %s from %s", r.Method, r.RequestURI, r.RemoteAddr)
+		log.Printf("[http] %s %s from %s", r.Method, sanitizeURI(r.RequestURI), r.RemoteAddr)
 	}
+
+	// ACME challenge exemption: NEVER require OAuth for ACME challenges
+	if isACMEChallenge(r) {
+		p.reverseProxy.ServeHTTP(w, r)
+		return
+	}
+
+	// OAuth authentication enforcement
+	if p.oauthManager != nil {
+		if p.oauthManager.IsCallback(r) {
+			p.oauthManager.HandleCallback(w, r)
+			return
+		}
+		if p.oauthManager.IsLogout(r) {
+			p.oauthManager.HandleLogout(w, r)
+			return
+		}
+
+		user, err := p.oauthManager.AuthenticateRequest(r)
+		if err != nil {
+			if p.verbose {
+				log.Printf("[oauth] Unauthenticated request for %s, redirecting to login", sanitizeURI(r.RequestURI))
+			}
+			p.oauthManager.HandleLoginRedirect(w, r)
+			return
+		}
+
+		// Inject authenticated identity headers for backend
+		r.Header.Set("X-Forwarded-User", user)
+		r.Header.Set("X-Auth-Email", user)
+	}
+
 	p.reverseProxy.ServeHTTP(w, r)
 }
 

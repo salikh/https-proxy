@@ -19,6 +19,14 @@ This document provides a complete reference for all command-line flags accepted 
 | `--key` | `string` | `""` | No | Manual Cert | Path to matching private key file |
 | `--no-tls` | `bool` | `false` | No | Plain HTTP | Run as plain HTTP proxy without TLS or redirection |
 | `--verbose` | `bool` | `false` | No | All | Enable detailed logging of requests and responses |
+| `--oauth` | `bool` | `false` | No | All | Enforce Google OAuth authentication on all requests (except ACME) |
+| `--oauth-secret` | `string` | `secret.json` | No | OAuth | Path to plaintext or encrypted `.enc` credentials JSON |
+| `--oauth-passphrase` | `string` | `""` | No | OAuth | Passphrase for encrypted secret file (or `OAUTH_PASSPHRASE` env var) |
+| `--oauth-allowed-file` | `string` | `allowed.txt` | No | OAuth | Path to newline-delimited allowed user emails whitelist |
+| `--oauth-allowed-users` | `string` | `""` | No | OAuth | Comma-separated list of allowed user emails |
+| `--oauth-allowed-domains` | `string` | `""` | No | OAuth | Comma-separated list of allowed email domains |
+| `--encrypt-secret` | `string` | `""` | No | CLI Utility | Path to plaintext secret file to encrypt with AES-256-GCM and exit |
+| `--encrypt-secret-out` | `string` | `input.enc` | No | CLI Utility | Destination path for encrypted secret file |
 
 ---
 
@@ -100,6 +108,47 @@ This document provides a complete reference for all command-line flags accepted 
   - Inbound HTTP redirect logs (`[http] GET / from ... -> Redirecting to https://...`)
   - Inbound HTTPS request logs (`[https] GET /api from ...`)
   - Upstream backend response status and content-length (`[response] Status: 200, Content-Length: 1234`)
+  - Sensitive parameters (`code`, `state`, `token`, `secret`) are automatically redacted.
+
+### `--oauth`
+- **Type**: Boolean flag
+- **Default**: `false`
+- **Description**: Enforces Google OAuth 2.0 authentication on all proxy requests (except ACME challenges). Unauthenticated visitors are redirected to Google login.
+
+### `--oauth-secret <PATH>`
+- **Type**: String (file path)
+- **Default**: `secret.json`
+- **Description**: Path to OAuth client credentials JSON (either plaintext or encrypted `.enc` file). Automatically tightens permissions to `0600` on startup.
+
+### `--oauth-passphrase <PASSPHRASE>`
+- **Type**: String
+- **Default**: `""` (can also be supplied via `OAUTH_PASSPHRASE` environment variable or prompted interactively)
+- **Description**: Passphrase to decrypt an AES-256-GCM encrypted OAuth secret file.
+
+### `--oauth-allowed-file <PATH>`
+- **Type**: String (file path)
+- **Default**: `allowed.txt` (automatically loaded if file exists)
+- **Description**: Path to a newline-delimited text file containing authorized Google user email addresses.
+
+### `--oauth-allowed-users <EMAILS>`
+- **Type**: String (comma-separated)
+- **Default**: `""`
+- **Description**: Additional authorized user email addresses (e.g. `salikh@gmail.com,salikh@google.com`).
+
+### `--oauth-allowed-domains <DOMAINS>`
+- **Type**: String (comma-separated)
+- **Default**: `""`
+- **Description**: Allowed Google Workspace email domains (e.g. `example.com`).
+
+### `--encrypt-secret <PATH>`
+- **Type**: String (file path)
+- **Default**: `""`
+- **Description**: CLI utility mode to encrypt a plaintext credentials file into an AES-256-GCM container (`.enc`) and immediately exit.
+
+### `--encrypt-secret-out <PATH>`
+- **Type**: String (file path)
+- **Default**: `<input-path>.enc`
+- **Description**: Destination path for the encrypted secret file when using `--encrypt-secret`.
 
 ---
 
@@ -151,6 +200,16 @@ sudo ./https-proxy \
   --backend http://localhost:9000 \
   --no-tls \
   --http-port 8080
+```
+
+### Example F: Enforcing OAuth Authentication with Allowed Users Whitelist
+```bash
+sudo ./https-proxy \
+  --hostname part.salikh.info \
+  --backend http://192.168.1.11:8080 \
+  --oauth \
+  --oauth-secret secret.json \
+  --oauth-allowed-file allowed.txt
 ```
 
 ---

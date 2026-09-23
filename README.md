@@ -6,9 +6,17 @@ A high-performance Go reverse proxy designed to expose local or internal HTTP ba
 
 ## Features
 
+- **Google OAuth 2.0 Access Control**: Enforces mandatory Google OAuth login on all requests when `--oauth` is enabled, forwarding verified user email headers (`X-Forwarded-User`, `X-Auth-Email`) to the backend.
+- **ACME Challenge Exemption**: Preserves HTTP-01 challenge paths (`/.well-known/acme-challenge/*`) unconditionally, exempting them from OAuth authentication and redirection loops to guarantee seamless Let's Encrypt certificate issuance.
+- **Client Secret Protection Defense-in-Depth**:
+  - Automatic `0600` file permission tightening for secret credentials.
+  - Authenticated AES-256-GCM encryption at rest (`secret.json.enc`) via PBKDF2 with CLI tool and `encrypt-secret.sh`.
+  - Zero-disk credential loading via `OAUTH_SECRET_JSON` environment variable.
+  - Query parameter log sanitization (redacting `code`, `state`, `secret`, `token`).
+  - Cryptographically signed HMAC-SHA256 HttpOnly/Secure session cookies and CSRF state tokens.
+- **Allowed Users Whitelist**: Supports restricting access via `allowed.txt` (loaded automatically), command-line user lists (`--oauth-allowed-users`), and domain whitelists (`--oauth-allowed-domains`).
 - **Automated TLS via Let's Encrypt**: Automatic certificate issuance and renewal via ACME HTTP-01 / TLS-ALPN using `golang.org/x/crypto/acme/autocert`.
 - **Automated HTTP-to-HTTPS Redirection**: Automatically redirects plain HTTP requests on port 80 to the canonical HTTPS service with `301 Moved Permanently`.
-- **ACME Challenge Exemption**: Preserves HTTP-01 challenge paths (`/.well-known/acme-challenge/*`) on port 80 to guarantee seamless certificate issuance without redirection loops.
 - **LAN IP & Non-SNI Canonicalization**: Automatically canonicalizes requests directed at LAN IPs (e.g., `http://192.168.1.1`) to the configured domain, preventing TLS handshake errors (`acme/autocert: missing server name`).
 - **Multiple Certificate Modes**:
   - Let's Encrypt automated certificates (default)
@@ -27,19 +35,17 @@ A high-performance Go reverse proxy designed to expose local or internal HTTP ba
 ./build.sh
 ```
 
-### 2. Run with Let's Encrypt (Default Production Mode)
+### 2. Run with Let's Encrypt & OAuth Authentication (Production Mode)
 
-Using the `start.sh` helper script:
+Using `start.sh`:
 ```bash
-sudo ./start.sh --hostname part.salikh.info --backend http://192.168.1.11:8080 --verbose
+sudo ./start.sh --hostname part.salikh.info --backend http://192.168.1.11:8080 --oauth --verbose
 ```
 
 Or running the binary directly:
 ```bash
-sudo ./https-proxy --hostname part.salikh.info --backend http://192.168.1.11:8080 --verbose
+sudo ./https-proxy --hostname part.salikh.info --backend http://192.168.1.11:8080 --oauth --verbose
 ```
-
-> **Note**: Binding to standard privileged ports 80 and 443 requires root privileges (`sudo`) or the `CAP_NET_BIND_SERVICE` Linux capability (`sudo setcap 'cap_net_bind_service=+ep' ./https-proxy`).
 
 ### 3. Run with Self-Signed Certificates (Local Development / Testing)
 
@@ -49,6 +55,21 @@ sudo ./https-proxy --hostname part.salikh.info --backend http://192.168.1.11:808
 
 # Run proxy in self-signed mode
 sudo ./start.sh --hostname myserver.local --backend http://192.168.1.11:8080 --self-signed --self-signed-dir ./certs
+```
+
+### 4. Encrypting OAuth Client Secrets at Rest
+
+Protect your `secret.json` from disk exposure:
+```bash
+# Encrypt credentials into AES-256-GCM container
+./encrypt-secret.sh secret.json secret.json.enc
+
+# Safely delete plaintext secret
+rm secret.json
+
+# Run proxy using the encrypted credentials
+export OAUTH_PASSPHRASE="your-passphrase"
+sudo ./start.sh --hostname part.salikh.info --backend http://192.168.1.11:8080 --oauth --oauth-secret secret.json.enc
 ```
 
 ---
@@ -79,6 +100,14 @@ Certificate Modes:
 
 Logging & Diagnostics:
   --verbose                Enable verbose request, response, and redirection logging
+
+OAuth 2.0 Access Control:
+  --oauth                  Enforce Google OAuth 2.0 authentication on all requests (except ACME)
+  --oauth-secret FILE      Path to credentials JSON (plaintext or .enc, default: secret.json)
+  --oauth-passphrase PASS  Passphrase for encrypted credentials (or OAUTH_PASSPHRASE env var)
+  --oauth-allowed-file FILE Path to allowed emails whitelist (default: allowed.txt if exists)
+  --oauth-allowed-users LIST Comma-separated list of allowed user email addresses
+  --oauth-allowed-domains LIST Comma-separated list of allowed Google Workspace domains
 ```
 
 For the complete flag matrix and detailed parameter rules, see [**CLI Reference**](docs/cli-reference.md).
@@ -89,6 +118,7 @@ For the complete flag matrix and detailed parameter rules, see [**CLI Reference*
 
 Comprehensive documentation of design decisions, architecture, and deployment setup can be found in the [`docs/`](docs/) directory:
 
+- [**OAuth 2.0 Authentication & Secret Protection**](docs/oauth-authentication.md): Architecture of OAuth gateway, ACME challenge bypass, whitelist rules, and multi-layered defense strategy for client secrets.
 - [**CLI Reference**](docs/cli-reference.md): Detailed matrix of all flags, default values, requirements, and invocation examples.
 - [**Architecture & Proxy Pipeline**](docs/architecture.md): Overview of request processing, reverse proxy director, header transformations, and graceful shutdown.
 - [**HTTP Redirection & ACME Challenges**](docs/redirect-and-acme.md): Deep dive into the HTTP-to-HTTPS redirect logic, ACME HTTP-01 challenge exemption, LAN IP canonicalization, and SNI fallback mechanisms.

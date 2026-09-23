@@ -3,3 +3,8 @@ https-proxy
 *.swo
 *~
 .DS_Store
+/secret.json
+*secret*.json
+*.secret.json
+client_secret*.json
+*.enc
