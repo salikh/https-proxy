@@ -136,17 +136,19 @@ func isACMEChallenge(r *http.Request) bool {
 
 // redirectTarget builds the target HTTPS URL for an incoming HTTP request.
 func (p *HTTPSProxy) redirectTarget(r *http.Request) (string, error) {
-	host := r.Host
-	if host == "" {
-		host = p.defaultHostname
+	// If a default hostname is configured (e.g. via --hostname), always use it as the redirect target.
+	// Redirecting to an IP address or unverified host causes TLS handshake failures with autocert
+	// because Let's Encrypt certificates are only issued for the configured domain name, and
+	// clients connecting to IP addresses do not send SNI server names.
+	hostname := p.defaultHostname
+	if hostname == "" {
+		hostname = r.Host
+		if h, _, err := net.SplitHostPort(hostname); err == nil {
+			hostname = h
+		}
 	}
-	if host == "" {
+	if hostname == "" {
 		return "", fmt.Errorf("missing Host header")
-	}
-
-	hostname := host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		hostname = h
 	}
 
 	cleanHost := strings.Trim(hostname, "[]")
@@ -231,12 +233,23 @@ func (p *HTTPSProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 // ServeTLS starts the HTTPS server with Let's Encrypt certificates.
 func (p *HTTPSProxy) ServeTLS(listener net.Listener, certManager *autocert.Manager) error {
+	tlsConfig := certManager.TLSConfig()
+	origGetCertificate := tlsConfig.GetCertificate
+	tlsConfig.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		// If a client connects directly to HTTPS without SNI (e.g. connecting via IP address),
+		// fall back to defaultHostname instead of failing with "acme/autocert: missing server name".
+		if hello.ServerName == "" && p.defaultHostname != "" {
+			helloCopy := *hello
+			helloCopy.ServerName = p.defaultHostname
+			return origGetCertificate(&helloCopy)
+		}
+		return origGetCertificate(hello)
+	}
+
 	p.httpsServer = &http.Server{
-		Addr:    listener.Addr().String(),
-		Handler: http.HandlerFunc(p.serveProxy),
-		TLSConfig: &tls.Config{
-			GetCertificate: certManager.GetCertificate,
-		},
+		Addr:      listener.Addr().String(),
+		Handler:   http.HandlerFunc(p.serveProxy),
+		TLSConfig: tlsConfig,
 	}
 
 	return p.httpsServer.ServeTLS(listener, "", "")

@@ -446,4 +446,63 @@ func TestServeHTTPWithAutocertManager(t *testing.T) {
 	}
 }
 
+// TestHTTPRedirectIPToDefaultHostname verifies that requests with an IP Host header are redirected
+// to the configured default hostname rather than redirecting to an IP address.
+func TestHTTPRedirectIPToDefaultHostname(t *testing.T) {
+	backendURL, _ := url.Parse("http://localhost:8080")
+	proxy := NewHTTPSProxy(backendURL, nil, false)
+	proxy.SetDefaultHostname("part.salikh.info")
+
+	testCases := []struct {
+		name     string
+		host     string
+		path     string
+		expected string
+	}{
+		{
+			name:     "LAN IPv4 address",
+			host:     "192.168.1.1",
+			path:     "/",
+			expected: "https://part.salikh.info/",
+		},
+		{
+			name:     "LAN IPv4 address with port",
+			host:     "192.168.1.1:80",
+			path:     "/api/v1",
+			expected: "https://part.salikh.info/api/v1",
+		},
+		{
+			name:     "Localhost",
+			host:     "localhost",
+			path:     "/test",
+			expected: "https://part.salikh.info/test",
+		},
+		{
+			name:     "Canonical hostname",
+			host:     "part.salikh.info",
+			path:     "/test",
+			expected: "https://part.salikh.info/test",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", tc.path, nil)
+			req.Host = tc.host
+
+			w := httptest.NewRecorder()
+			proxy.handleHTTP(w, req)
+
+			if w.Code != http.StatusMovedPermanently {
+				t.Fatalf("Expected status %d, got %d", http.StatusMovedPermanently, w.Code)
+			}
+
+			if loc := w.Header().Get("Location"); loc != tc.expected {
+				t.Errorf("Expected Location %q, got %q", tc.expected, loc)
+			}
+		})
+	}
+}
+
+
 
