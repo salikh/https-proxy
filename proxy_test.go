@@ -504,5 +504,65 @@ func TestHTTPRedirectIPToDefaultHostname(t *testing.T) {
 	}
 }
 
+// TestHTTPRedirectWithVirtualHosts tests HTTP redirect behavior with virtual hosts configured.
+func TestHTTPRedirectWithVirtualHosts(t *testing.T) {
+	backend, _ := url.Parse("http://localhost:8080")
+	proxy := NewHTTPSProxy(backend, nil, false)
+	proxy.SetHTTPSPort(443)
+	proxy.SetDefaultHostname("default.example.com")
+
+	// Set up virtual hosts
+	virtualHosts := map[string]*url.URL{
+		"api.example.com": backend,
+		"web.example.com": backend,
+	}
+	proxy.SetVirtualHosts(virtualHosts)
+
+	testCases := []struct {
+		hostHeader       string
+		expectedLocation string
+		description      string
+	}{
+		{
+			"api.example.com",
+			"https://api.example.com/test",
+			"Request to virtual host should redirect to same hostname",
+		},
+		{
+			"web.example.com",
+			"https://web.example.com/test",
+			"Request to different virtual host should redirect to same hostname",
+		},
+		{
+			"unknown.example.com",
+			"https://default.example.com/test",
+			"Request to unknown hostname should redirect to default hostname",
+		},
+		{
+			"api.example.com:8080",
+			"https://api.example.com/test",
+			"Request with port should strip port and redirect to hostname only",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/test", nil)
+			req.Host = tc.hostHeader
+			w := httptest.NewRecorder()
+
+			proxy.handleHTTP(w, req)
+
+			if w.Code != http.StatusMovedPermanently {
+				t.Errorf("Expected 301 redirect, got %d", w.Code)
+			}
+
+			location := w.Header().Get("Location")
+			if location != tc.expectedLocation {
+				t.Errorf("Expected location %q, got %q", tc.expectedLocation, location)
+			}
+		})
+	}
+}
 
 

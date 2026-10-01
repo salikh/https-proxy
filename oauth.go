@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -54,34 +55,36 @@ type GoogleUserInfo struct {
 
 // OAuthOptions configures the OAuthManager behavior.
 type OAuthOptions struct {
-	CookieSecret    []byte
-	CookieName      string
-	SessionDuration time.Duration
-	AllowedUsers    []string
-	AllowedDomains  []string
-	CallbackPath    string
-	UserInfoURL     string
-	Hostname        string
-	HTTPClient      *http.Client
-	SecureCookie    bool
-	Verbose         bool
+	CookieSecret      []byte
+	CookieName        string
+	SessionDuration   time.Duration
+	AllowedUsers      []string
+	AllowedDomains    []string
+	CallbackPath      string
+	UserInfoURL       string
+	Hostname          string
+	VirtualHostnames  []string // Additional hostnames for virtual host support
+	HTTPClient        *http.Client
+	SecureCookie      bool
+	Verbose           bool
 }
 
 // OAuthManager handles Google OAuth 2.0 authentication, session cookies, and state verification.
 type OAuthManager struct {
-	config          *oauth2.Config
-	cookieSecret    []byte
-	cookieName      string
-	stateCookieName string
-	sessionDuration time.Duration
-	allowedUsers    map[string]bool
-	allowedDomains  []string
-	callbackPath    string
-	logoutPath      string
-	userInfoURL     string
-	httpClient      *http.Client
-	secureCookie    bool
-	verbose         bool
+	config           *oauth2.Config
+	cookieSecret     []byte
+	cookieName       string
+	stateCookieName  string
+	sessionDuration  time.Duration
+	allowedUsers     map[string]bool
+	allowedDomains   []string
+	callbackPath     string
+	logoutPath       string
+	userInfoURL      string
+	httpClient       *http.Client
+	secureCookie     bool
+	verbose          bool
+	virtualHostnames map[string]bool // Set of allowed hostnames for OAuth callbacks
 }
 
 // EncryptSecret encrypts plaintext using AES-256-GCM with a PBKDF2-derived key.
@@ -339,20 +342,32 @@ func NewOAuthManager(secretJSON []byte, opts OAuthOptions) (*OAuthManager, error
 		}
 	}
 
+	virtualHostnames := make(map[string]bool)
+	if opts.Hostname != "" {
+		virtualHostnames[strings.ToLower(opts.Hostname)] = true
+	}
+	for _, h := range opts.VirtualHostnames {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if h != "" {
+			virtualHostnames[h] = true
+		}
+	}
+
 	mgr := &OAuthManager{
-		config:          cfg,
-		cookieSecret:    cookieSecret,
-		cookieName:      cookieName,
-		stateCookieName: DefaultStateCookieName,
-		sessionDuration: sessionDuration,
-		allowedUsers:    allowedUsersMap,
-		allowedDomains:  allowedDomains,
-		callbackPath:    callbackPath,
-		logoutPath:      "/oauth/logout",
-		userInfoURL:     userInfoURL,
-		httpClient:      opts.HTTPClient,
-		secureCookie:    opts.SecureCookie,
-		verbose:         opts.Verbose,
+		config:           cfg,
+		cookieSecret:     cookieSecret,
+		cookieName:       cookieName,
+		stateCookieName:  DefaultStateCookieName,
+		sessionDuration:  sessionDuration,
+		allowedUsers:     allowedUsersMap,
+		allowedDomains:   allowedDomains,
+		callbackPath:     callbackPath,
+		logoutPath:       "/oauth/logout",
+		userInfoURL:      userInfoURL,
+		httpClient:       opts.HTTPClient,
+		secureCookie:     opts.SecureCookie,
+		verbose:          opts.Verbose,
+		virtualHostnames: virtualHostnames,
 	}
 
 	return mgr, nil
@@ -561,6 +576,25 @@ func (m *OAuthManager) IsLogout(r *http.Request) bool {
 	return r.URL.Path == m.logoutPath
 }
 
+// getRedirectURLForRequest returns the appropriate OAuth redirect URL for the incoming request.
+// If the request hostname matches a configured virtual hostname, that hostname is used.
+// Otherwise, the default configured hostname is used.
+func (m *OAuthManager) getRedirectURLForRequest(r *http.Request) string {
+	requestHost := r.Host
+	if h, _, err := net.SplitHostPort(requestHost); err == nil {
+		requestHost = h
+	}
+	requestHost = strings.ToLower(requestHost)
+
+	// Check if the request hostname is in our virtual hosts
+	if m.virtualHostnames[requestHost] {
+		return "https://" + requestHost + m.callbackPath
+	}
+
+	// Fallback to the default hostname from config
+	return m.config.RedirectURL
+}
+
 // HandleLoginRedirect redirects unauthenticated requests to the Google OAuth login page.
 func (m *OAuthManager) HandleLoginRedirect(w http.ResponseWriter, r *http.Request) {
 	targetURI := r.URL.RequestURI()
@@ -574,8 +608,15 @@ func (m *OAuthManager) HandleLoginRedirect(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Get the appropriate redirect URL for this request
+	redirectURL := m.getRedirectURLForRequest(r)
+
+	// Create a temporary config with the request-specific redirect URL for this login flow
+	tempConfig := *m.config
+	tempConfig.RedirectURL = redirectURL
+
 	http.SetCookie(w, stateCookie)
-	authURL := m.config.AuthCodeURL(state, oauth2.AccessTypeOnline)
+	authURL := tempConfig.AuthCodeURL(state, oauth2.AccessTypeOnline)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
@@ -642,8 +683,17 @@ func (m *OAuthManager) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		ctx = context.WithValue(ctx, oauth2.HTTPClient, m.httpClient)
 	}
 
+	// Get the appropriate redirect URL for this callback request (must match the login flow)
+	redirectURL := m.getRedirectURLForRequest(r)
+
+	// Create a temporary config with the request-specific redirect URL
+	// This is necessary because Google validates that the redirect_uri in the token exchange
+	// matches what was used in the authorization request
+	tempConfig := *m.config
+	tempConfig.RedirectURL = redirectURL
+
 	// Exchange authorization code for token
-	token, err := m.config.Exchange(ctx, code)
+	token, err := tempConfig.Exchange(ctx, code)
 	if err != nil {
 		log.Printf("[oauth] Token exchange failed: %v", err)
 		http.Error(w, "Authentication failed: "+err.Error(), http.StatusUnauthorized)

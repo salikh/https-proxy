@@ -198,7 +198,7 @@ func runHTTPSProxy(vhostConfig *VirtualHostConfig, backendURL *url.URL) {
 		proxy.SetDefaultHostname(*hostname)
 	}
 
-	if oauthMgr := setupOAuth(true, hostnames[0]); oauthMgr != nil {
+	if oauthMgr := setupOAuth(true, hostnames[0], vhostConfig); oauthMgr != nil {
 		proxy.SetOAuthManager(oauthMgr)
 	}
 
@@ -277,7 +277,7 @@ func runHTTPProxy(vhostConfig *VirtualHostConfig, backendURL *url.URL) {
 		primaryHostname = *hostname
 	}
 
-	if oauthMgr := setupOAuth(false, primaryHostname); oauthMgr != nil {
+	if oauthMgr := setupOAuth(false, primaryHostname, vhostConfig); oauthMgr != nil {
 		proxy.SetOAuthManager(oauthMgr)
 	}
 
@@ -316,7 +316,7 @@ func runHTTPProxy(vhostConfig *VirtualHostConfig, backendURL *url.URL) {
 	}
 }
 
-func setupOAuth(secureCookie bool, hostname string) *OAuthManager {
+func setupOAuth(secureCookie bool, hostname string, vhostConfig *VirtualHostConfig) *OAuthManager {
 	if !*oauth {
 		return nil
 	}
@@ -357,12 +357,19 @@ func setupOAuth(secureCookie bool, hostname string) *OAuthManager {
 		}
 	}
 
+	// Collect all virtual hostnames for OAuth redirect URL support
+	var virtualHostnames []string
+	if vhostConfig != nil {
+		virtualHostnames = vhostConfig.GetAllHostnames()
+	}
+
 	mgr, err := NewOAuthManager(secretData, OAuthOptions{
-		AllowedUsers:   allowedUsers,
-		AllowedDomains: allowedDomains,
-		Hostname:       hostname,
-		SecureCookie:   secureCookie,
-		Verbose:        *verbose,
+		AllowedUsers:     allowedUsers,
+		AllowedDomains:   allowedDomains,
+		Hostname:         hostname,
+		VirtualHostnames: virtualHostnames,
+		SecureCookie:     secureCookie,
+		Verbose:          *verbose,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize OAuth manager: %v", err)

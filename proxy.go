@@ -86,6 +86,25 @@ func (p *HTTPSProxy) getBackendForRequest(r *http.Request) *url.URL {
 	return p.backend
 }
 
+// getHostnameForRequest returns the hostname to use for OAuth and redirects.
+// If virtual hosts are configured and the request's hostname matches one, that hostname is used.
+// Otherwise, the default hostname is returned.
+func (p *HTTPSProxy) getHostnameForRequest(r *http.Request) string {
+	if len(p.virtualHosts) > 0 {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		host = strings.ToLower(host)
+
+		if _, ok := p.virtualHosts[host]; ok {
+			return host
+		}
+	}
+
+	return p.defaultHostname
+}
+
 // director modifies the request before sending it to the backend.
 func (p *HTTPSProxy) director(r *http.Request) {
 	if p.verbose {
@@ -173,17 +192,31 @@ func isACMEChallenge(r *http.Request) bool {
 
 // redirectTarget builds the target HTTPS URL for an incoming HTTP request.
 func (p *HTTPSProxy) redirectTarget(r *http.Request) (string, error) {
-	// If a default hostname is configured (e.g. via --hostname), always use it as the redirect target.
-	// Redirecting to an IP address or unverified host causes TLS handshake failures with autocert
-	// because Let's Encrypt certificates are only issued for the configured domain name, and
-	// clients connecting to IP addresses do not send SNI server names.
-	hostname := p.defaultHostname
-	if hostname == "" {
-		hostname = r.Host
-		if h, _, err := net.SplitHostPort(hostname); err == nil {
-			hostname = h
+	// Extract hostname from request (without port)
+	requestHost := r.Host
+	requestHostname := requestHost
+	if h, _, err := net.SplitHostPort(requestHost); err == nil {
+		requestHostname = h
+	}
+
+	// If virtual hosts are configured, check if the incoming hostname matches one
+	hostname := ""
+	if len(p.virtualHosts) > 0 {
+		if _, ok := p.virtualHosts[strings.ToLower(requestHostname)]; ok {
+			// Request hostname matches a virtual host, use it
+			hostname = requestHostname
 		}
 	}
+
+	// If no virtual host match or no virtual hosts configured, use default hostname
+	if hostname == "" {
+		hostname = p.defaultHostname
+		if hostname == "" {
+			// If no default, try using the request hostname (fallback)
+			hostname = requestHostname
+		}
+	}
+
 	if hostname == "" {
 		return "", fmt.Errorf("missing Host header")
 	}

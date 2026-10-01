@@ -617,3 +617,113 @@ func TestOAuthRedirectURLWithCustomCallbackPath(t *testing.T) {
 		t.Errorf("Expected redirect URL %q, got %q", expectedURL, mgr.config.RedirectURL)
 	}
 }
+
+// TestOAuthVirtualHostRedirectURL verifies dynamic redirect URLs for virtual hosts.
+func TestOAuthVirtualHostRedirectURL(t *testing.T) {
+	primaryHostname := "api.example.com"
+	virtualHostnames := []string{"web.example.com", "admin.example.com"}
+
+	mgr, err := NewOAuthManager([]byte(sampleGoogleSecretJSON), OAuthOptions{
+		Hostname:         primaryHostname,
+		VirtualHostnames: virtualHostnames,
+		SecureCookie:     false,
+	})
+	if err != nil {
+		t.Fatalf("NewOAuthManager failed: %v", err)
+	}
+
+	testCases := []struct {
+		incomingHost    string
+		expectedRedirectURL string
+		description     string
+	}{
+		{
+			"api.example.com",
+			"https://api.example.com/callback",
+			"Primary hostname should use primary redirect URL",
+		},
+		{
+			"web.example.com",
+			"https://web.example.com/callback",
+			"Virtual hostname should use its own redirect URL",
+		},
+		{
+			"admin.example.com",
+			"https://admin.example.com/callback",
+			"Another virtual hostname should use its own redirect URL",
+		},
+		{
+			"web.example.com:8080",
+			"https://web.example.com/callback",
+			"Virtual hostname with port should strip port in redirect URL",
+		},
+		{
+			"unknown.example.com",
+			"https://api.example.com/callback",
+			"Unknown hostname should fall back to primary redirect URL",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/callback", nil)
+			req.Host = tc.incomingHost
+
+			redirectURL := mgr.getRedirectURLForRequest(req)
+			if redirectURL != tc.expectedRedirectURL {
+				t.Errorf("Expected redirect URL %q, got %q", tc.expectedRedirectURL, redirectURL)
+			}
+		})
+	}
+}
+
+// TestOAuthLoginRedirectWithVirtualHost verifies login redirect uses correct hostname.
+func TestOAuthLoginRedirectWithVirtualHost(t *testing.T) {
+	primaryHostname := "api.example.com"
+	virtualHostnames := []string{"web.example.com"}
+
+	mgr, err := NewOAuthManager([]byte(sampleGoogleSecretJSON), OAuthOptions{
+		Hostname:         primaryHostname,
+		VirtualHostnames: virtualHostnames,
+		SecureCookie:     false,
+	})
+	if err != nil {
+		t.Fatalf("NewOAuthManager failed: %v", err)
+	}
+
+	testCases := []struct {
+		incomingHost         string
+		shouldContainInAuthURL string
+		description          string
+	}{
+		{
+			"web.example.com",
+			"https://web.example.com/callback",
+			"Login from virtual host should use that hostname in auth URL",
+		},
+		{
+			"api.example.com",
+			"https://api.example.com/callback",
+			"Login from primary host should use primary hostname in auth URL",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/protected", nil)
+			req.Host = tc.incomingHost
+			w := httptest.NewRecorder()
+
+			mgr.HandleLoginRedirect(w, req)
+
+			if w.Code != http.StatusFound {
+				t.Fatalf("Expected 302 redirect, got %d", w.Code)
+			}
+
+			location := w.Header().Get("Location")
+			if !strings.Contains(location, tc.shouldContainInAuthURL) {
+				t.Errorf("Expected auth URL to contain %q, got %q", tc.shouldContainInAuthURL, location)
+			}
+		})
+	}
+}
