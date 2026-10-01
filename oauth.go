@@ -61,6 +61,7 @@ type OAuthOptions struct {
 	AllowedDomains  []string
 	CallbackPath    string
 	UserInfoURL     string
+	Hostname        string
 	HTTPClient      *http.Client
 	SecureCookie    bool
 	Verbose         bool
@@ -292,6 +293,10 @@ func NewOAuthManager(secretJSON []byte, opts OAuthOptions) (*OAuthManager, error
 		if callbackPath == "" {
 			callbackPath = "/callback"
 		}
+	}
+
+	if opts.Hostname != "" {
+		cfg.RedirectURL = "https://" + opts.Hostname + callbackPath
 	}
 
 	// Derive cookie signing key securely from client secret if not explicitly provided

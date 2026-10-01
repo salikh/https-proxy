@@ -18,8 +18,9 @@ import (
 )
 
 var (
-	hostname            = flag.String("hostname", "", "Hostname for the server (required for HTTPS)")
-	backend             = flag.String("backend", "", "Backend HTTP address to proxy to (required)")
+	hostname            = flag.String("hostname", "", "Hostname for the server (required for HTTPS, unless --virtual-hosts is used)")
+	backend             = flag.String("backend", "", "Backend HTTP address to proxy to (required unless --virtual-hosts is used)")
+	virtualHosts        = flag.String("virtual-hosts", "", "Path to JSON file with virtual host configurations (overrides --hostname and --backend)")
 	port                = flag.Int("port", 443, "Port to listen on")
 	httpPort            = flag.Int("http-port", 80, "Port to listen on for HTTP (ACME challenges and HTTPS redirects, or plain HTTP mode)")
 	cacheDir            = flag.String("cache-dir", "", "Directory to cache Let's Encrypt certificates (default: $HOME/.cache/https-proxy)")
@@ -48,41 +49,67 @@ func main() {
 		return
 	}
 
-	// Validate required flags
-	if *backend == "" {
-		log.Fatal("--backend flag is required")
-	}
+	// Load virtual hosts or fall back to single hostname/backend mode
+	var vhostConfig *VirtualHostConfig
+	var hostnames []string
+	var backendURL *url.URL
 
-	// Parse and validate backend URL
-	backendURL, err := url.Parse(*backend)
-	if err != nil {
-		log.Fatalf("Invalid backend URL: %v", err)
-	}
-	if backendURL.Scheme != "http" && backendURL.Scheme != "https" {
-		log.Fatal("Backend URL must have http or https scheme")
-	}
+	if *virtualHosts != "" {
+		var err error
+		vhostConfig, err = LoadVirtualHostConfig(*virtualHosts)
+		if err != nil {
+			log.Fatalf("Failed to load virtual hosts config: %v", err)
+		}
+		hostnames = vhostConfig.GetAllHostnames()
+		log.Printf("Loaded %d virtual host(s) from %s", len(hostnames), *virtualHosts)
+		for _, vh := range vhostConfig.VirtualHosts {
+			log.Printf("  - %s -> %s", vh.Hostname, vh.Backend)
+		}
+	} else {
+		// Fallback to single hostname/backend mode for backward compatibility
+		if *backend == "" {
+			log.Fatal("--backend flag is required (or use --virtual-hosts for multi-host setup)")
+		}
 
-	log.Printf("Backend: %s", backendURL.String())
+		var err error
+		backendURL, err = url.Parse(*backend)
+		if err != nil {
+			log.Fatalf("Invalid backend URL: %v", err)
+		}
+		if backendURL.Scheme != "http" && backendURL.Scheme != "https" {
+			log.Fatal("Backend URL must have http or https scheme")
+		}
+
+		log.Printf("Backend: %s", backendURL.String())
+
+		if *hostname != "" {
+			hostnames = []string{*hostname}
+		}
+	}
 
 	// Handle HTTP-only mode
 	if *noTLS {
-		runHTTPProxy(backendURL)
+		runHTTPProxy(vhostConfig, backendURL)
 		return
 	}
 
-	// HTTPS mode - require hostname
-	if *hostname == "" {
-		log.Fatal("--hostname flag is required for HTTPS mode (use --no-tls for HTTP-only mode)")
+	// HTTPS mode - require hostname(s)
+	if len(hostnames) == 0 {
+		log.Fatal("--hostname flag or --virtual-hosts file is required for HTTPS mode (use --no-tls for HTTP-only mode)")
 	}
 
-	log.Printf("HTTPS listening on :%d (hostname: %s)", *port, *hostname)
+	if len(hostnames) == 1 {
+		log.Printf("HTTPS listening on :%d (hostname: %s)", *port, hostnames[0])
+	} else {
+		log.Printf("HTTPS listening on :%d with %d virtual host(s)", *port, len(hostnames))
+	}
 	log.Printf("HTTP listening on :%d (for ACME challenges and HTTPS redirects)", *httpPort)
 
-	runHTTPSProxy(backendURL)
+	runHTTPSProxy(vhostConfig, backendURL)
 
 }
 
-func runHTTPSProxy(backendURL *url.URL) {
+func runHTTPSProxy(vhostConfig *VirtualHostConfig, backendURL *url.URL) {
 	// Setup certificate cache directory
 	if *cacheDir == "" {
 		homeDir, err := os.UserHomeDir()
@@ -97,6 +124,14 @@ func runHTTPSProxy(backendURL *url.URL) {
 	}
 
 	log.Printf("Certificate cache: %s", *cacheDir)
+
+	// Collect all hostnames for certificate management
+	var hostnames []string
+	if vhostConfig != nil {
+		hostnames = vhostConfig.GetAllHostnames()
+	} else if *hostname != "" {
+		hostnames = []string{*hostname}
+	}
 
 	var certManager interface{} // Can be *autocert.Manager or nil
 
@@ -122,8 +157,9 @@ func runHTTPSProxy(backendURL *url.URL) {
 		*keyFile = filepath.Join(*selfSignedDir, "key.pem")
 
 		// Check if certs exist, if not error out
+		primaryHostname := hostnames[0]
 		if _, err := os.Stat(*certFile); os.IsNotExist(err) {
-			log.Fatalf("Self-signed certificate not found at %s. Run: generate-self-signed-cert.sh --hostname %s --output-dir %s", *certFile, *hostname, *selfSignedDir)
+			log.Fatalf("Self-signed certificate not found at %s. Run: generate-self-signed-cert.sh --hostname %s --output-dir %s", *certFile, primaryHostname, *selfSignedDir)
 		}
 
 		log.Printf("Using self-signed certificate: %s", *certFile)
@@ -140,18 +176,29 @@ func runHTTPSProxy(backendURL *url.URL) {
 		// Let's Encrypt mode (default)
 		certManager = &autocert.Manager{
 			Prompt:      autocert.AcceptTOS,
-			HostPolicy: autocert.HostWhitelist(*hostname),
+			HostPolicy: autocert.HostWhitelist(hostnames...),
 			Cache:      autocert.DirCache(*cacheDir),
 		}
-		log.Printf("Using Let's Encrypt certificates")
+		log.Printf("Using Let's Encrypt certificates for %d host(s)", len(hostnames))
 	}
 
 	// Create proxy
 	proxy := NewHTTPSProxy(backendURL, certManager, *verbose)
 	proxy.SetHTTPSPort(*port)
-	proxy.SetDefaultHostname(*hostname)
 
-	if oauthMgr := setupOAuth(true); oauthMgr != nil {
+	// Set up virtual hosts or fallback to single hostname
+	if vhostConfig != nil {
+		backendMap, err := vhostConfig.ToBackendURLMap()
+		if err != nil {
+			log.Fatalf("Failed to create backend URL map: %v", err)
+		}
+		proxy.SetVirtualHosts(backendMap)
+		proxy.SetDefaultHostname(hostnames[0])
+	} else {
+		proxy.SetDefaultHostname(*hostname)
+	}
+
+	if oauthMgr := setupOAuth(true, hostnames[0]); oauthMgr != nil {
 		proxy.SetOAuthManager(oauthMgr)
 	}
 
@@ -210,11 +257,27 @@ func runHTTPSProxy(backendURL *url.URL) {
 	}
 }
 
-func runHTTPProxy(backendURL *url.URL) {
+func runHTTPProxy(vhostConfig *VirtualHostConfig, backendURL *url.URL) {
 	// Create proxy
 	proxy := NewHTTPProxy(backendURL, *verbose)
 
-	if oauthMgr := setupOAuth(false); oauthMgr != nil {
+	// Set up virtual hosts if configured
+	if vhostConfig != nil {
+		backendMap, err := vhostConfig.ToBackendURLMap()
+		if err != nil {
+			log.Fatalf("Failed to create backend URL map: %v", err)
+		}
+		proxy.SetVirtualHosts(backendMap)
+	}
+
+	var primaryHostname string
+	if vhostConfig != nil {
+		primaryHostname = vhostConfig.VirtualHosts[0].Hostname
+	} else if *hostname != "" {
+		primaryHostname = *hostname
+	}
+
+	if oauthMgr := setupOAuth(false, primaryHostname); oauthMgr != nil {
 		proxy.SetOAuthManager(oauthMgr)
 	}
 
@@ -253,7 +316,7 @@ func runHTTPProxy(backendURL *url.URL) {
 	}
 }
 
-func setupOAuth(secureCookie bool) *OAuthManager {
+func setupOAuth(secureCookie bool, hostname string) *OAuthManager {
 	if !*oauth {
 		return nil
 	}
@@ -297,6 +360,7 @@ func setupOAuth(secureCookie bool) *OAuthManager {
 	mgr, err := NewOAuthManager(secretData, OAuthOptions{
 		AllowedUsers:   allowedUsers,
 		AllowedDomains: allowedDomains,
+		Hostname:       hostname,
 		SecureCookie:   secureCookie,
 		Verbose:        *verbose,
 	})

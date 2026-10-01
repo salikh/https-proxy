@@ -579,3 +579,41 @@ func TestSanitizeURI(t *testing.T) {
 		}
 	}
 }
+
+// TestOAuthRedirectURLUsesHostnameFlag verifies that the OAuth redirect URL is set correctly based on the hostname parameter.
+func TestOAuthRedirectURLUsesHostnameFlag(t *testing.T) {
+	testHostname := "example.com"
+
+	mgr, err := NewOAuthManager([]byte(sampleGoogleSecretJSON), OAuthOptions{
+		Hostname:     testHostname,
+		SecureCookie: false,
+	})
+	if err != nil {
+		t.Fatalf("NewOAuthManager failed: %v", err)
+	}
+
+	expectedURL := "https://example.com/callback"
+	if mgr.config.RedirectURL != expectedURL {
+		t.Errorf("Expected redirect URL %q, got %q", expectedURL, mgr.config.RedirectURL)
+	}
+}
+
+// TestOAuthRedirectURLWithCustomCallbackPath verifies that custom callback paths are respected.
+func TestOAuthRedirectURLWithCustomCallbackPath(t *testing.T) {
+	testHostname := "example.com"
+	testCallbackPath := "/oauth2/callback"
+
+	mgr, err := NewOAuthManager([]byte(sampleGoogleSecretJSON), OAuthOptions{
+		Hostname:     testHostname,
+		CallbackPath: testCallbackPath,
+		SecureCookie: false,
+	})
+	if err != nil {
+		t.Fatalf("NewOAuthManager failed: %v", err)
+	}
+
+	expectedURL := "https://example.com/oauth2/callback"
+	if mgr.config.RedirectURL != expectedURL {
+		t.Errorf("Expected redirect URL %q, got %q", expectedURL, mgr.config.RedirectURL)
+	}
+}

@@ -21,6 +21,7 @@ type HeaderTransformer func(r *http.Request, target *url.URL) error
 // HTTPSProxy wraps the reverse proxy with certificate management and header transformation.
 type HTTPSProxy struct {
 	backend           *url.URL
+	virtualHosts      map[string]*url.URL // hostname -> backend URL mapping
 	reverseProxy      *httputil.ReverseProxy
 	certManager       interface{} // *autocert.Manager or nil
 	httpServer        *http.Server
@@ -62,27 +63,52 @@ func NewHTTPSProxy(backend *url.URL, certManager interface{}, verbose bool) *HTT
 	return proxy
 }
 
+// getBackendForRequest returns the backend URL for the given request.
+// If virtual hosts are configured, it selects based on the Host header.
+// Otherwise, it returns the default backend.
+func (p *HTTPSProxy) getBackendForRequest(r *http.Request) *url.URL {
+	if len(p.virtualHosts) > 0 {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		host = strings.ToLower(host)
+
+		if backend, ok := p.virtualHosts[host]; ok {
+			return backend
+		}
+
+		if p.verbose {
+			log.Printf("[request] No virtual host configured for %q, using default backend", host)
+		}
+	}
+
+	return p.backend
+}
+
 // director modifies the request before sending it to the backend.
 func (p *HTTPSProxy) director(r *http.Request) {
 	if p.verbose {
 		log.Printf("[request] %s %s from %s", r.Method, r.RequestURI, r.RemoteAddr)
 	}
 
+	backend := p.getBackendForRequest(r)
+
 	// Rewrite the request to target the backend
-	r.URL.Scheme = p.backend.Scheme
-	r.URL.Host = p.backend.Host
-	if p.backend.Path != "" {
-		r.URL.Path = p.backend.Path + r.URL.Path
+	r.URL.Scheme = backend.Scheme
+	r.URL.Host = backend.Host
+	if backend.Path != "" {
+		r.URL.Path = backend.Path + r.URL.Path
 	}
 
 	// Apply header transformation
-	if err := p.headerTransformer(r, p.backend); err != nil {
+	if err := p.headerTransformer(r, backend); err != nil {
 		log.Printf("Header transformation error: %v", err)
 	}
 
 	// Clear request host to match the backend
 	r.RequestURI = ""
-	r.Host = p.backend.Host
+	r.Host = backend.Host
 }
 
 // defaultHeaderTransformer handles standard header transformations.
@@ -133,6 +159,11 @@ func (p *HTTPSProxy) SetDefaultHostname(hostname string) {
 // SetOAuthManager configures OAuth authentication for the HTTPS proxy.
 func (p *HTTPSProxy) SetOAuthManager(mgr *OAuthManager) {
 	p.oauthManager = mgr
+}
+
+// SetVirtualHosts configures virtual host routing for the HTTPS proxy.
+func (p *HTTPSProxy) SetVirtualHosts(virtualHosts map[string]*url.URL) {
+	p.virtualHosts = virtualHosts
 }
 
 // isACMEChallenge checks if the HTTP request is an ACME HTTP-01 challenge verification request.
@@ -339,6 +370,7 @@ func (p *HTTPSProxy) Shutdown(ctx context.Context) error {
 // HTTPProxy is a plain HTTP proxy (no TLS).
 type HTTPProxy struct {
 	backend           *url.URL
+	virtualHosts      map[string]*url.URL // hostname -> backend URL mapping
 	reverseProxy      *httputil.ReverseProxy
 	httpServer        *http.Server
 	headerTransformer HeaderTransformer
@@ -374,32 +406,62 @@ func NewHTTPProxy(backend *url.URL, verbose bool) *HTTPProxy {
 	return proxy
 }
 
+// getBackendForRequest returns the backend URL for the given request.
+// If virtual hosts are configured, it selects based on the Host header.
+// Otherwise, it returns the default backend.
+func (p *HTTPProxy) getBackendForRequest(r *http.Request) *url.URL {
+	if len(p.virtualHosts) > 0 {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		host = strings.ToLower(host)
+
+		if backend, ok := p.virtualHosts[host]; ok {
+			return backend
+		}
+
+		if p.verbose {
+			log.Printf("[request] No virtual host configured for %q, using default backend", host)
+		}
+	}
+
+	return p.backend
+}
+
 // director modifies the request before sending it to the backend.
 func (p *HTTPProxy) director(r *http.Request) {
 	if p.verbose {
 		log.Printf("[request] %s %s from %s", r.Method, r.RequestURI, r.RemoteAddr)
 	}
 
+	backend := p.getBackendForRequest(r)
+
 	// Rewrite the request to target the backend
-	r.URL.Scheme = p.backend.Scheme
-	r.URL.Host = p.backend.Host
-	if p.backend.Path != "" {
-		r.URL.Path = p.backend.Path + r.URL.Path
+	r.URL.Scheme = backend.Scheme
+	r.URL.Host = backend.Host
+	if backend.Path != "" {
+		r.URL.Path = backend.Path + r.URL.Path
 	}
 
 	// Apply header transformation
-	if err := p.headerTransformer(r, p.backend); err != nil {
+	if err := p.headerTransformer(r, backend); err != nil {
 		log.Printf("Header transformation error: %v", err)
 	}
 
 	// Clear request host to match the backend
 	r.RequestURI = ""
-	r.Host = p.backend.Host
+	r.Host = backend.Host
 }
 
 // SetOAuthManager configures OAuth authentication for the HTTP proxy.
 func (p *HTTPProxy) SetOAuthManager(mgr *OAuthManager) {
 	p.oauthManager = mgr
+}
+
+// SetVirtualHosts configures virtual host routing for the HTTP proxy.
+func (p *HTTPProxy) SetVirtualHosts(virtualHosts map[string]*url.URL) {
+	p.virtualHosts = virtualHosts
 }
 
 // ServeHTTP starts the HTTP server.

@@ -11,9 +11,9 @@ if [ ! -f "$BINARY" ]; then
     bash build.sh
 fi
 
-# --hostname part.salikh.info --backend http://192.168.1.11:8080/ --port 443  --http-port 80
+# --hostname photos.salikh.info --backend http://192.168.1.11:8080/ --port 443  --http-port 80
 # Parse arguments
-HOSTNAME="part.salikh.info"
+HOSTNAME="photos.salikh.info"
 BACKEND="http://192.168.1.11:8080"
 PORT="443"
 HTTP_PORT="80"
@@ -30,6 +30,7 @@ OAUTH_PASSPHRASE=""
 OAUTH_ALLOWED_USERS=""
 OAUTH_ALLOWED_FILE=""
 OAUTH_ALLOWED_DOMAINS=""
+vIRTUAL_HOSTS=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -101,6 +102,10 @@ while [[ $# -gt 0 ]]; do
             OAUTH_ALLOWED_DOMAINS="$2"
             shift 2
             ;;
+        --virtual-hosts)
+            VIRTUAL_HOSTS="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             echo "Use: $0 [--hostname HOSTNAME] [--backend URL] [--port PORT] [--http-port PORT] [--cache-dir DIR] [--self-signed] [--self-signed-dir DIR] [--cert FILE] [--key FILE] [--no-tls] [--verbose] [--oauth] [--oauth-secret FILE] [--oauth-passphrase PASS] [--oauth-allowed-users EMAILS] [--oauth-allowed-file FILE] [--oauth-allowed-domains DOMAINS]"
@@ -163,6 +168,9 @@ if [ -n "$OAUTH" ]; then
     fi
     if [ -n "$OAUTH_ALLOWED_DOMAINS" ]; then
         CMD="$CMD -oauth-allowed-domains=$OAUTH_ALLOWED_DOMAINS"
+    fi
+    if [ -n "$VIRTUAL_HOSTS" ]; then
+        CMD="$CMD -virtual-hosts=$VIRTUAL_HOSTS"
     fi
 fi
 

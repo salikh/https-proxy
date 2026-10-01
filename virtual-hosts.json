@@ -1,0 +1,12 @@
+{
+  "virtual_hosts": [
+    {
+      "hostname": "photos.salikh.info",
+      "backend": "http://192.168.1.11:8080"
+    },
+    {
+      "hostname": "part.salikh.info",
+      "backend": "http://192.168.1.11:80"
+    }
+  ]
+}
