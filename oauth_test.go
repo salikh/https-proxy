@@ -692,18 +692,18 @@ func TestOAuthLoginRedirectWithVirtualHost(t *testing.T) {
 	}
 
 	testCases := []struct {
-		incomingHost         string
-		shouldContainInAuthURL string
-		description          string
+		incomingHost      string
+		expectedHostname  string
+		description       string
 	}{
 		{
 			"web.example.com",
-			"https://web.example.com/callback",
+			"web.example.com",
 			"Login from virtual host should use that hostname in auth URL",
 		},
 		{
 			"api.example.com",
-			"https://api.example.com/callback",
+			"api.example.com",
 			"Login from primary host should use primary hostname in auth URL",
 		},
 	}
@@ -721,8 +721,10 @@ func TestOAuthLoginRedirectWithVirtualHost(t *testing.T) {
 			}
 
 			location := w.Header().Get("Location")
-			if !strings.Contains(location, tc.shouldContainInAuthURL) {
-				t.Errorf("Expected auth URL to contain %q, got %q", tc.shouldContainInAuthURL, location)
+			// Check that the redirect_uri parameter contains the expected hostname (URL-encoded)
+			expectedInURL := "https%3A%2F%2F" + tc.expectedHostname + "%2Fcallback"
+			if !strings.Contains(location, expectedInURL) {
+				t.Errorf("Expected auth URL to contain %q, got %q", expectedInURL, location)
 			}
 		})
 	}
