@@ -8,3 +8,4 @@ https-proxy
 *.secret.json
 client_secret*.json
 *.enc
+/allowed.txt
