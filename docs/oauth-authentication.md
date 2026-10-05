@@ -42,16 +42,16 @@ The proxy uses the standard Google Cloud Console Web Application credentials JSO
 ```json
 {
   "web": {
-    "client_id": "1074458008562-....apps.googleusercontent.com",
+    "client_id": "1234567890123-....apps.googleusercontent.com",
     "project_id": "...",
     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
     "token_uri": "https://oauth2.googleapis.com/token",
     "client_secret": "GOCSPX-...",
     "redirect_uris": [
-      "https://part.salikh.info/callback"
+      "https://example.com.info/callback"
     ],
     "javascript_origins": [
-      "https://part.salikh.info"
+      "https://example.com"
     ]
   }
 }
@@ -65,9 +65,9 @@ Access can be restricted to specific email addresses or domains:
 - Format: One email address per line. Comments starting with `#` and blank lines are ignored:
   ```text
   # Authorized Admin Users
-  salikh@gmail.com
-  salikh@google.com
-  asuka.ujiie@gmail.com
+  me@example.com
+  me@example.info
+  you@gmail.com
   ```
 - Additional users or files can be configured via:
   - `--oauth-allowed-file <path>`: Load emails from an alternative file.
@@ -122,7 +122,7 @@ OAuth client secrets grant the ability to exchange authorization codes and imper
 - Setting the `OAUTH_SECRET_JSON` environment variable allows `https-proxy` to read credentials directly from memory:
   ```bash
   export OAUTH_SECRET_JSON='{"web":{"client_id":"...","client_secret":"..."}}'
-  ./https-proxy --oauth --hostname part.salikh.info --backend http://localhost:8080
+  ./https-proxy --oauth --hostname example.com --backend http://localhost:8080
   ```
   No secret file ever touches the filesystem.
 
@@ -151,7 +151,7 @@ OAuth client secrets grant the ability to exchange authorization codes and imper
 Using `start.sh`:
 ```bash
 sudo ./start.sh \
-  --hostname part.salikh.info \
+  --hostname example.com \
   --backend http://192.168.1.11:8080 \
   --oauth \
   --verbose
@@ -166,7 +166,7 @@ rm secret.json
 # 2. Run with encrypted secret
 export OAUTH_PASSPHRASE="SecretPassphrase123"
 sudo ./start.sh \
-  --hostname part.salikh.info \
+  --hostname example.com \
   --backend http://192.168.1.11:8080 \
   --oauth \
   --oauth-secret secret.json.enc
@@ -175,7 +175,7 @@ sudo ./start.sh \
 ### 3. Custom Whitelist File
 ```bash
 sudo ./start.sh \
-  --hostname part.salikh.info \
+  --hostname example.com \
   --backend http://192.168.1.11:8080 \
   --oauth \
   --oauth-allowed-file /etc/proxy/admins.txt

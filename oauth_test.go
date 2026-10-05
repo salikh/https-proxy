@@ -25,10 +25,10 @@ const sampleGoogleSecretJSON = `{
     "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
     "client_secret": "GOCSPX-test-client-secret-abc",
     "redirect_uris": [
-      "https://part.salikh.info/callback"
+      "https://example.com/callback"
     ],
     "javascript_origins": [
-      "https://part.salikh.info"
+      "https://example.com"
     ]
   }
 }`
@@ -188,7 +188,7 @@ func TestOAuthSessionCookieLifecycle(t *testing.T) {
 		t.Fatalf("NewOAuthManager failed: %v", err)
 	}
 
-	email := "salikh@google.com"
+	email := "me@example.com"
 	cookie := mgr.CreateSessionCookie(email)
 
 	if cookie.Name != DefaultSessionCookieName {
@@ -336,11 +336,11 @@ func TestLoadAllowedUsersFromFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "allowed.txt")
 	content := `# Allowed admin users
-salikh@gmail.com
-salikh@google.com # primary work email
+me@example.info
+me@example.com # primary work email
 
 # Other users
-asuka.ujiie@gmail.com
+you@gmail.com
 
 `
 	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
@@ -353,9 +353,9 @@ asuka.ujiie@gmail.com
 	}
 
 	expected := []string{
-		"salikh@gmail.com",
-		"salikh@google.com",
-		"asuka.ujiie@gmail.com",
+		"me@example.info",
+		"me@example.com",
+		"you@gmail.com",
 	}
 
 	if len(users) != len(expected) {
@@ -436,18 +436,18 @@ func TestProxyEnforcesOAuthOnAllRequestsExceptACME(t *testing.T) {
 
 	// 3. Authenticated request with valid session cookie: MUST FORWARD to backend with headers
 	authReq := httptest.NewRequest("GET", "/api/data", nil)
-	authReq.AddCookie(mgr.CreateSessionCookie("salikh@google.com"))
+	authReq.AddCookie(mgr.CreateSessionCookie("me@example.com"))
 	authW := httptest.NewRecorder()
 	proxy.serveProxy(authW, authReq)
 
 	if authW.Code != http.StatusOK {
 		t.Fatalf("Expected authenticated request to return 200 OK, got %d", authW.Code)
 	}
-	if backendReceivedHeaders.Get("X-Forwarded-User") != "salikh@google.com" {
-		t.Errorf("Expected X-Forwarded-User to be salikh@google.com, got %q", backendReceivedHeaders.Get("X-Forwarded-User"))
+	if backendReceivedHeaders.Get("X-Forwarded-User") != "me@example.com" {
+		t.Errorf("Expected X-Forwarded-User to be me@example.com, got %q", backendReceivedHeaders.Get("X-Forwarded-User"))
 	}
-	if backendReceivedHeaders.Get("X-Auth-Email") != "salikh@google.com" {
-		t.Errorf("Expected X-Auth-Email to be salikh@google.com, got %q", backendReceivedHeaders.Get("X-Auth-Email"))
+	if backendReceivedHeaders.Get("X-Auth-Email") != "me@example.com" {
+		t.Errorf("Expected X-Auth-Email to be me@example.com, got %q", backendReceivedHeaders.Get("X-Auth-Email"))
 	}
 }
 
@@ -490,8 +490,8 @@ func TestFullOAuthCallbackFlow(t *testing.T) {
 
 	// Create manager configured with mock server
 	mgr, err := NewOAuthManager([]byte(sampleGoogleSecretJSON), OAuthOptions{
-		UserInfoURL: mockOAuthServer.URL + "/userinfo",
-		HTTPClient:  mockOAuthServer.Client(),
+		UserInfoURL:  mockOAuthServer.URL + "/userinfo",
+		HTTPClient:   mockOAuthServer.Client(),
 		SecureCookie: false,
 	})
 	if err != nil {
@@ -633,9 +633,9 @@ func TestOAuthVirtualHostRedirectURL(t *testing.T) {
 	}
 
 	testCases := []struct {
-		incomingHost    string
+		incomingHost        string
 		expectedRedirectURL string
-		description     string
+		description         string
 	}{
 		{
 			"api.example.com",
@@ -692,9 +692,9 @@ func TestOAuthLoginRedirectWithVirtualHost(t *testing.T) {
 	}
 
 	testCases := []struct {
-		incomingHost      string
-		expectedHostname  string
-		description       string
+		incomingHost     string
+		expectedHostname string
+		description      string
 	}{
 		{
 			"web.example.com",

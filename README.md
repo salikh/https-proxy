@@ -11,15 +11,13 @@ HTTP-to-HTTPS redirection.
 
 - **Google OAuth 2.0 Access Control**: Enforces mandatory Google OAuth login on all requests when `--oauth` is enabled, forwarding verified user email headers (`X-Forwarded-User`, `X-Auth-Email`) to the backend.
 - **ACME Challenge Exemption**: Preserves HTTP-01 challenge paths (`/.well-known/acme-challenge/*`) unconditionally, exempting them from OAuth authentication and redirection loops to guarantee seamless Let's Encrypt certificate issuance.
-- **Client Secret Protection Defense-in-Depth**:
-  - Automatic `0600` file permission tightening for secret credentials.
+- **Client Secret Protection**:
   - Authenticated AES-256-GCM encryption at rest (`secret.json.enc`) via PBKDF2 with CLI tool and `encrypt-secret.sh`.
-  - Zero-disk credential loading via `OAUTH_SECRET_JSON` environment variable.
   - Query parameter log sanitization (redacting `code`, `state`, `secret`, `token`).
   - Cryptographically signed HMAC-SHA256 HttpOnly/Secure session cookies and CSRF state tokens.
 - **Allowed Users Whitelist**: Supports restricting access via `allowed.txt` (loaded automatically), command-line user lists (`--oauth-allowed-users`), and domain whitelists (`--oauth-allowed-domains`).
 - **Automated TLS via Let's Encrypt**: Automatic certificate issuance and renewal via ACME HTTP-01 / TLS-ALPN using `golang.org/x/crypto/acme/autocert`.
-- **Automated HTTP-to-HTTPS Redirection**: Automatically redirects plain HTTP requests on port 80 to the canonical HTTPS service with `301 Moved Permanently`.
+- **HTTP-to-HTTPS Redirection**: Automatically redirects plain HTTP requests on port 80 to the canonical HTTPS service with `301 Moved Permanently`.
 - **LAN IP & Non-SNI Canonicalization**: Automatically canonicalizes requests directed at LAN IPs (e.g., `http://192.168.1.1`) to the configured domain, preventing TLS handshake errors (`acme/autocert: missing server name`).
 - **Multiple Certificate Modes**:
   - Let's Encrypt automated certificates (default)
@@ -42,12 +40,12 @@ HTTP-to-HTTPS redirection.
 
 Using `start.sh`:
 ```bash
-sudo ./start.sh --hostname part.salikh.info --backend http://192.168.1.11:8080 --oauth --verbose
+sudo ./start.sh --hostname example.com --backend http://192.168.1.11:8080 --oauth --verbose
 ```
 
 Or running the binary directly:
 ```bash
-sudo ./https-proxy --hostname part.salikh.info --backend http://192.168.1.11:8080 --oauth --verbose
+sudo ./https-proxy --hostname example.com --backend http://192.168.1.11:8080 --oauth --verbose
 ```
 
 ### 3. Run with Self-Signed Certificates (Local Development / Testing)
@@ -72,7 +70,7 @@ rm secret.json
 
 # Run proxy using the encrypted credentials
 export OAUTH_PASSPHRASE="your-passphrase"
-sudo ./start.sh --hostname part.salikh.info --backend http://192.168.1.11:8080 --oauth --oauth-secret secret.json.enc
+sudo ./start.sh --hostname example.com --backend http://192.168.1.11:8080 --oauth --oauth-secret secret.json.enc
 ```
 
 ---
@@ -86,7 +84,7 @@ Usage: ./https-proxy [options]
 
 Required Options:
   --backend URL            Backend HTTP address to proxy to (required, e.g. http://192.168.1.11:8080)
-  --hostname HOSTNAME      Hostname for the server (required for HTTPS mode, e.g. part.salikh.info)
+  --hostname HOSTNAME      Hostname for the server (required for HTTPS mode, e.g. example.com)
 
 Network & Port Options:
   --port PORT              Port to listen on for HTTPS (default: 443)

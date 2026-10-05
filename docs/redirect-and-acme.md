@@ -17,7 +17,7 @@ In HTTPS mode, the proxy binds to two ports:
 ## 2. ACME HTTP-01 Challenge Exemption
 
 ### The Challenge Protocol
-When Let's Encrypt provisions or renews a TLS certificate for a domain (e.g., `part.salikh.info`), it validates domain ownership by issuing an **HTTP-01 challenge** (RFC 8555, Section 8.3):
+When Let's Encrypt provisions or renews a TLS certificate for a domain (e.g., `example.com`), it validates domain ownership by issuing an **HTTP-01 challenge** (RFC 8555, Section 8.3):
 1. Let's Encrypt asks the proxy for a token response.
 2. Let's Encrypt's validation servers connect to `http://<domain>:80/.well-known/acme-challenge/<token>`.
 3. The server must reply over plain HTTP with HTTP status `200 OK` and the key authorization token.
@@ -77,7 +77,7 @@ When deploying this proxy on a server or gateway router (e.g. at IP `192.168.1.1
      acme/autocert: missing server name
      ```
    - Furthermore, Let's Encrypt cannot issue public certificates for private RFC 1918 IP addresses (`192.168.1.1`).
-   - Even if a certificate were returned, the client's browser would reject it due to a domain mismatch error (`part.salikh.info` != `192.168.1.1`).
+   - Even if a certificate were returned, the client's browser would reject it due to a domain mismatch error (`example.com` != `192.168.1.1`).
 
 ### The Solution: Prioritize Configured Hostname
 In `redirectTarget`:
@@ -91,15 +91,15 @@ if hostname == "" {
 }
 ```
 
-Whenever `--hostname` is configured on the proxy (e.g. `part.salikh.info`), **all plain HTTP requests—whether addressed to `192.168.1.1`, `localhost`, or the domain—are redirected to the canonical domain**:
+Whenever `--hostname` is configured on the proxy (e.g. `example.com`), **all plain HTTP requests—whether addressed to `192.168.1.1`, `localhost`, or the domain—are redirected to the canonical domain**:
 ```http
 HTTP/1.1 301 Moved Permanently
-Location: https://part.salikh.info/
+Location: https://example.com/
 ```
 When the client follows this redirect:
-1. The client looks up `part.salikh.info`.
-2. Connects to `https://part.salikh.info/`.
-3. Transmits `ServerName: part.salikh.info` in the TLS ClientHello SNI.
+1. The client looks up `example.com`.
+2. Connects to `https://example.com/`.
+3. Transmits `ServerName: example.com` in the TLS ClientHello SNI.
 4. `autocert` provisions or retrieves the valid certificate, and the TLS handshake succeeds seamlessly.
 
 ---

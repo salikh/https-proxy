@@ -9,3 +9,4 @@ https-proxy
 client_secret*.json
 *.enc
 /allowed.txt
+/virtual-hosts.json

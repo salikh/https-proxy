@@ -11,9 +11,9 @@ if [ ! -f "$BINARY" ]; then
     bash build.sh
 fi
 
-# --hostname photos.salikh.info --backend http://192.168.1.11:8080/ --port 443  --http-port 80
+# --hostname photos.example.com --backend http://192.168.1.11:8080/ --port 443  --http-port 80
 # Parse arguments
-HOSTNAME="photos.salikh.info"
+HOSTNAME="example.com"
 BACKEND="http://192.168.1.11:8080"
 PORT="443"
 HTTP_PORT="80"

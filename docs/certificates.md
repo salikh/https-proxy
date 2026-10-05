@@ -34,7 +34,7 @@ certManager = &autocert.Manager{
 ```text
 ~/.cache/https-proxy/
 ├── acme_account+key       # Account registration private key
-└── part.salikh.info       # Concatenated cert and private key for the domain
+└── example.com       # Concatenated cert and private key for the domain
 ```
 
 ---

@@ -451,7 +451,7 @@ func TestServeHTTPWithAutocertManager(t *testing.T) {
 func TestHTTPRedirectIPToDefaultHostname(t *testing.T) {
 	backendURL, _ := url.Parse("http://localhost:8080")
 	proxy := NewHTTPSProxy(backendURL, nil, false)
-	proxy.SetDefaultHostname("part.salikh.info")
+	proxy.SetDefaultHostname("example.com")
 
 	testCases := []struct {
 		name     string
@@ -463,25 +463,25 @@ func TestHTTPRedirectIPToDefaultHostname(t *testing.T) {
 			name:     "LAN IPv4 address",
 			host:     "192.168.1.1",
 			path:     "/",
-			expected: "https://part.salikh.info/",
+			expected: "https://example.com/",
 		},
 		{
 			name:     "LAN IPv4 address with port",
 			host:     "192.168.1.1:80",
 			path:     "/api/v1",
-			expected: "https://part.salikh.info/api/v1",
+			expected: "https://example.com/api/v1",
 		},
 		{
 			name:     "Localhost",
 			host:     "localhost",
 			path:     "/test",
-			expected: "https://part.salikh.info/test",
+			expected: "https://example.com/test",
 		},
 		{
 			name:     "Canonical hostname",
-			host:     "part.salikh.info",
+			host:     "example.com",
 			path:     "/test",
-			expected: "https://part.salikh.info/test",
+			expected: "https://example.com/test",
 		},
 	}
 

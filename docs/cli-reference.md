@@ -49,7 +49,7 @@ This document provides a complete reference for all command-line flags accepted 
   - Must match the public DNS name pointing to this server.
   - In Let's Encrypt mode, certificate issuance is strictly whitelisted to this domain.
   - Used as the target host for automatic HTTP-to-HTTPS redirects, canonicalizing requests originating from LAN IP addresses or `localhost`.
-- **Example**: `--hostname part.salikh.info`
+- **Example**: `--hostname example.com`
 
 ### `--port <PORT>`
 - **Type**: Integer
@@ -57,7 +57,7 @@ This document provides a complete reference for all command-line flags accepted 
 - **Description**: The TCP port for incoming HTTPS connections.
 - **Notes**:
   - Binding to ports < 1024 requires root privileges (`sudo`) or `CAP_NET_BIND_SERVICE`.
-  - If a non-standard port is specified (e.g. `8443`), HTTP redirects will include the port in the `Location` header (`https://part.salikh.info:8443/`).
+  - If a non-standard port is specified (e.g. `8443`), HTTP redirects will include the port in the `Location` header (`https://example.com:8443/`).
 - **Example**: `--port 8443`
 
 ### `--http-port <PORT>`
@@ -133,7 +133,7 @@ This document provides a complete reference for all command-line flags accepted 
 ### `--oauth-allowed-users <EMAILS>`
 - **Type**: String (comma-separated)
 - **Default**: `""`
-- **Description**: Additional authorized user email addresses (e.g. `salikh@gmail.com,salikh@google.com`).
+- **Description**: Additional authorized user email addresses (e.g. `me@gmail.com,me@example.com`).
 
 ### `--oauth-allowed-domains <DOMAINS>`
 - **Type**: String (comma-separated)
@@ -157,7 +157,7 @@ This document provides a complete reference for all command-line flags accepted 
 ### Example A: Standard Production (Let's Encrypt)
 ```bash
 sudo ./https-proxy \
-  --hostname part.salikh.info \
+  --hostname example.com \
   --backend http://192.168.1.11:8080 \
   --verbose
 ```
@@ -166,7 +166,7 @@ sudo ./https-proxy \
 Useful for running without root or behind external NAT port forwarders:
 ```bash
 ./https-proxy \
-  --hostname part.salikh.info \
+  --hostname example.com \
   --backend http://localhost:3000 \
   --port 8443 \
   --http-port 8080
@@ -205,7 +205,7 @@ sudo ./https-proxy \
 ### Example F: Enforcing OAuth Authentication with Allowed Users Whitelist
 ```bash
 sudo ./https-proxy \
-  --hostname part.salikh.info \
+  --hostname example.com \
   --backend http://192.168.1.11:8080 \
   --oauth \
   --oauth-secret secret.json \
@@ -222,5 +222,5 @@ The repository includes a convenience wrapper script [`start.sh`](../start.sh) w
 3. Displays a formatted startup banner with the active configuration before launching.
 
 ```bash
-./start.sh --hostname part.salikh.info --backend http://192.168.1.11:8080 --verbose
+./start.sh --hostname example.com --backend http://192.168.1.11:8080 --verbose
 ```
