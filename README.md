@@ -1,6 +1,9 @@
 # HTTPS Reverse Proxy with Automated Let's Encrypt & Redirection
 
-A high-performance Go reverse proxy designed to expose local or internal HTTP backend applications securely over HTTPS with automatic Let's Encrypt (ACME) certificate provisioning, self-signed certificate support, and automated HTTP-to-HTTPS redirection.
+A simple Go reverse proxy designed to expose local or internal HTTP backend
+applications securely over HTTPS with automatic Let's Encrypt (ACME)
+certificate provisioning, self-signed certificate support, and automated
+HTTP-to-HTTPS redirection.
 
 ---
 
@@ -23,7 +26,7 @@ A high-performance Go reverse proxy designed to expose local or internal HTTP ba
   - Self-signed certificates for testing and offline setups
   - Manual certificates (`--cert` and `--key`)
   - Plain HTTP proxy mode (`--no-tls`)
-- **Production-Ready Proxy Engine**: Built-in hop-by-hop header stripping, `X-Forwarded-*` header management, custom path prefix routing, and graceful shutdown handling.
+- Built-in hop-by-hop header stripping, `X-Forwarded-*` header management, custom path prefix routing, and graceful shutdown handling.
 
 ---
 
